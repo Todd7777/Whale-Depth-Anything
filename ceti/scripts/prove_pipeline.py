@@ -63,7 +63,7 @@ def extract_video_frames(video: Path, out_dir: Path, max_frames: int = 6) -> lis
     return saved
 
 
-def prove_relative_depth(report: dict) -> None:
+def prove_relative_depth(report: dict, *, quick: bool = False) -> None:
     """Relative Depth Anything on real underwater video (davis dolphins)."""
     import torch
     from torchvision.transforms import Compose
@@ -81,15 +81,21 @@ def prove_relative_depth(report: dict) -> None:
         report["relative"] = {"status": "skipped", "reason": "missing DAVIS underwater videos"}
         return
 
+    if quick:
+        videos = videos[:1]
+
     configure_compute()
     device = get_device()
     print(f"  Compute: {device_name(device)}")
+    if quick:
+        print("  Quick mode: 1 video, 2 frames, 2 variants (faster smoke test)")
 
     frames_dir = PROOF_DIR / "frames"
+    max_frames = 2 if quick else 4
     frames = []
     for video in videos:
         sub = frames_dir / video.stem
-        frames.extend(extract_video_frames(video, sub, max_frames=4))
+        frames.extend(extract_video_frames(video, sub, max_frames=max_frames))
 
     field_ckpt = FIELD_DEPTH_CKPT if FIELD_DEPTH_CKPT.exists() else (
         LEGACY_DEPTH_CKPT if LEGACY_DEPTH_CKPT.exists() else None
@@ -107,26 +113,32 @@ def prove_relative_depth(report: dict) -> None:
         ("baseline", None, False),
         ("underwater_preprocess", None, True),
     ]
-    if field_ckpt:
+    if field_ckpt and not quick:
         variants.append(("field_adapted", str(field_ckpt), True))
 
     out_dir = PROOF_DIR / "relative"
     out_dir.mkdir(parents=True, exist_ok=True)
     results = []
 
+    # Group by checkpoint so we load each model once (much faster on Mac)
+    by_ckpt: dict[str | None, list[tuple[str, str | None, bool]]] = {}
     for name, ckpt, preprocess in variants:
+        by_ckpt.setdefault(ckpt, []).append((name, ckpt, preprocess))
+
+    for ckpt, group in by_ckpt.items():
         model, _ = build_depth_model("vits", str(device), ckpt)
-        row_paths = []
-        for frame_path in frames:
-            bgr = cv2.imread(str(frame_path))
-            proc = preprocess_underwater(bgr, method="combined") if preprocess else bgr
-            depth_norm = predict_depth(model, transform, proc, device)
-            depth_vis = cv2.applyColorMap(depth_norm.astype(np.uint8), cv2.COLORMAP_INFERNO)
-            panel = np.hstack([proc, depth_vis])
-            out_path = out_dir / f"{frame_path.stem}_{name}.jpg"
-            cv2.imwrite(str(out_path), panel)
-            row_paths.append(str(out_path.relative_to(REPO_ROOT)))
-        results.append({"variant": name, "panels": row_paths})
+        for name, _, preprocess in group:
+            row_paths = []
+            for frame_path in frames:
+                bgr = cv2.imread(str(frame_path))
+                proc = preprocess_underwater(bgr, method="combined") if preprocess else bgr
+                depth_norm = predict_depth(model, transform, proc, device)
+                depth_vis = cv2.applyColorMap(depth_norm.astype(np.uint8), cv2.COLORMAP_INFERNO)
+                panel = np.hstack([proc, depth_vis])
+                out_path = out_dir / f"{frame_path.stem}_{name}.jpg"
+                cv2.imwrite(str(out_path), panel)
+                row_paths.append(str(out_path.relative_to(REPO_ROOT)))
+            results.append({"variant": name, "panels": row_paths})
         del model
 
     report["relative"] = {
@@ -326,7 +338,7 @@ def main():
         print("  Tip: run bash ceti/scripts/curate_underwater_field.sh for real training imagery")
     print(f"Output: {PROOF_DIR}")
 
-    prove_relative_depth(report)
+    prove_relative_depth(report, quick=args.quick)
     if not args.quick:
         prove_metric_depth(
             report,

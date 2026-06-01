@@ -33,6 +33,9 @@ fi
 # PyTorch with Metal (Apple Silicon)
 "$PIP" install -U torch torchvision
 
+# Required for download_checkpoints.sh (must be in venv, not system python3)
+"$PIP" install -U "huggingface_hub>=0.20.0"
+
 if [ -f ceti/scripts/download_checkpoints.sh ]; then
   bash ceti/scripts/download_checkpoints.sh || true
 fi

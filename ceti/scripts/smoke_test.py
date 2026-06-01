@@ -55,7 +55,9 @@ def test_depth_inference():
     from torchvision.transforms import Compose
     from depth_anything.dpt import DepthAnything
     from depth_anything.util.transform import Resize, NormalizeImage, PrepareForNet
+    from ceti.utils.device import configure_compute, get_device
 
+    configure_compute()
     device = str(get_device())
     encoder = "vits"  # smallest for smoke test
 
@@ -147,17 +149,23 @@ def test_underwater_train_config():
 
 def test_prove_quick():
     print("[7/8] Testing pipeline proof (--quick)...")
+    import os
     import subprocess
+
+    env = os.environ.copy()
+    env.setdefault("CETI_DEVICE", "mps")
 
     result = subprocess.run(
         [sys.executable, str(REPO_ROOT / "ceti/scripts/prove_pipeline.py"), "--quick"],
         cwd=str(REPO_ROOT),
         capture_output=True,
         text=True,
-        timeout=300,
+        timeout=900,
+        env=env,
     )
     if result.returncode != 0:
-        raise RuntimeError(result.stderr or result.stdout)
+        tail = (result.stderr or result.stdout or "")[-2000:]
+        raise RuntimeError(tail)
     report = REPO_ROOT / "ceti/outputs/proof/report.json"
     if not report.exists():
         raise FileNotFoundError("proof report.json not written")

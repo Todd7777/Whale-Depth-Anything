@@ -6,6 +6,9 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 CKPT_DIR="$REPO_ROOT/checkpoints"
 mkdir -p "$CKPT_DIR"
 
+PYTHON="${REPO_ROOT}/.venv/bin/python"
+[ -x "$PYTHON" ] || PYTHON="$(command -v python3)"
+
 download_hf() {
     local repo="$1"
     local filename="$2"
@@ -19,7 +22,7 @@ download_hf() {
     fi
 
     echo "  ↓ Downloading $filename from $repo → $dest_name..."
-    python3 -c "
+    "$PYTHON" -c "
 from huggingface_hub import hf_hub_download
 import shutil
 path = hf_hub_download(repo_id='$repo', filename='$filename')
