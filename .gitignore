@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# CETI / training artifacts (download or train locally)
+checkpoints/
+data/**
+!data/README.md
+ceti/outputs/
+*.pt
+*.pth
+*.ckpt
+
+# Large / generated
+metric_depth/checkpoints
+torchhub/
+*.mp4
+!assets/examples_video/*.mp4
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+*.swp
+
+# Logs
+*.log
+wandb/
+
+# Hugging Face cache (optional local)
+.cache/

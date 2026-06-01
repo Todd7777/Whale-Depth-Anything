@@ -1,0 +1,40 @@
+# Apple M5 Max — 128GB unified memory (full phase-1 + production relative depth)
+# Professor Gil / CETI / AVATARS Track B2 — underwater domain adaptation
+#
+# Setup:  bash ceti/scripts/setup_mac_mps.sh
+# Data:   bash ceti/scripts/download_all_online_data.sh
+# Train:  bash ceti/scripts/train_mac_full.sh
+
+project: CETI_WhaleDepth_M5Max
+save_dir: ./checkpoints/ceti_whale_depth
+
+encoder: vitl
+pretrained_model: LiheYoung/depth_anything_vitl14
+image_size: 518
+
+# M5 Max 128GB — ViT-L @ 518² fits batch 16 with AMP
+epochs: 40
+batch_size: 16
+workers: 10
+lr: 8.0e-6
+encoder_lr: 8.0e-7
+weight_decay: 0.01
+freeze_encoder: false
+use_amp: true
+device: mps
+
+w_scale_shift: 1.0
+w_gradient: 0.4
+
+preprocess_method: combined
+marine_augment: true
+
+train_list: ./ceti/data/whale_depth_train.txt
+val_list: ./ceti/data/whale_depth_val.txt
+
+image_sources:
+  - ./data/underwater_field/rgb
+  - ./data/ceti_field/rgb
+  - ./data/whale/raw_frames
+
+val_ratio: 0.12
