@@ -106,6 +106,7 @@ class WhaleDepthDataset(Dataset):
         image_size: int = 518,
         preprocess_method: str = "none",
         augment: bool = True,
+        teacher_cache_dir: str | Path | None = None,
     ):
         all_paths = load_image_paths(filenames_file)
         self.paths = [p for p in all_paths if p.is_file()]
@@ -124,6 +125,7 @@ class WhaleDepthDataset(Dataset):
         self.image_size = image_size
         self.preprocess_method = preprocess_method
         self.augment = augment
+        self.teacher_cache_dir = Path(teacher_cache_dir) if teacher_cache_dir else None
 
         self.transform = Compose([
             Resize(
@@ -159,11 +161,22 @@ class WhaleDepthDataset(Dataset):
         if self.preprocess_method != "none":
             image = preprocess_underwater(image, method=self.preprocess_method)
 
+        teacher_depth = None
+        if self.teacher_cache_dir is not None:
+            from ceti.depth.teacher_cache import cache_file_for_image
+
+            cache_path = cache_file_for_image(self.teacher_cache_dir, path)
+            if cache_path.exists():
+                teacher_depth = np.load(cache_path).astype(np.float32)
+
         if self._aug is not None:
             image = self._aug(image)
 
-        if self.augment and random.random() < 0.5:
+        do_flip = self.augment and random.random() < 0.5
+        if do_flip:
             image = cv2.flip(image, 1)
+            if teacher_depth is not None:
+                teacher_depth = np.flip(teacher_depth, axis=1).copy()
 
         rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
         sample = self.transform({"image": rgb})["image"]
@@ -179,4 +192,13 @@ class WhaleDepthDataset(Dataset):
                 align_corners=False,
             ).squeeze(0)
 
-        return {"image": tensor, "path": str(path)}
+        out = {"image": tensor, "path": str(path)}
+        if teacher_depth is not None:
+            if teacher_depth.shape != (self.image_size, self.image_size):
+                teacher_depth = cv2.resize(
+                    teacher_depth,
+                    (self.image_size, self.image_size),
+                    interpolation=cv2.INTER_LINEAR,
+                )
+            out["teacher_depth"] = teacher_depth
+        return out

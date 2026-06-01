@@ -18,6 +18,7 @@ import argparse
 import sys
 from pathlib import Path
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 import yaml
@@ -75,14 +76,48 @@ def predict_depth(model, images: torch.Tensor) -> torch.Tensor:
     return model(images)
 
 
+def _batch_teacher_depth(batch: dict, device: torch.device) -> torch.Tensor | None:
+    td = batch.get("teacher_depth")
+    if td is None:
+        return None
+    if isinstance(td, torch.Tensor):
+        t = td.to(device, dtype=torch.float32)
+    else:
+        t = torch.from_numpy(np.stack(td)).to(device, dtype=torch.float32)
+    if t.dim() == 3:
+        t = t.unsqueeze(1)
+    return t
+
+
+def _teacher_forward(
+    teacher,
+    images: torch.Tensor,
+    device: torch.device,
+    teacher_device: str,
+    use_amp: bool,
+) -> torch.Tensor:
+    teacher_in = images if teacher_device == str(device) else images.to(teacher_device)
+    with torch.autocast(
+        device_type=autocast_device_type(torch.device(teacher_device)),
+        enabled=use_amp and teacher_device != "cpu",
+    ):
+        target = predict_depth(teacher, teacher_in)
+    if teacher_device != str(device):
+        target = target.to(device)
+    return target
+
+
 def validate(
     student,
     teacher,
     loader: DataLoader,
-    device: str,
+    device: torch.device,
     ss_loss: ScaleShiftInvariantLoss,
     grad_loss: GradientMatchingLoss,
     w_grad: float,
+    *,
+    teacher_device: str = "mps",
+    use_amp: bool = True,
 ) -> float:
     student.eval()
     total = 0.0
@@ -90,7 +125,9 @@ def validate(
     for batch in loader:
         images = batch["image"].to(device)
         with torch.no_grad():
-            target = predict_depth(teacher, images)
+            target = _batch_teacher_depth(batch, device)
+            if target is None:
+                target = _teacher_forward(teacher, images, device, teacher_device, use_amp)
         pred = predict_depth(student, images)
         loss = ss_loss(pred, target) + w_grad * grad_loss(pred, target)
         total += loss.item()
@@ -179,33 +216,75 @@ def main():
     print(f"Device: {device_name(device)}  (threads={n_threads})")
     amp_dtype = autocast_device_type(device)
 
+    epochs = args.epochs or cfg["epochs"]
+    batch_size = args.batch_size or cfg["batch_size"]
+    image_size = cfg.get("image_size", 518)
+    val_every = int(cfg.get("val_every", 1))
+
     # Optional: CETI_TEACHER_ON_CPU=1 saves MPS memory (slower teacher forward)
     teacher_device = str(device)
     if os.environ.get("CETI_TEACHER_ON_CPU", "").strip() in ("1", "true", "yes"):
         teacher_device = "cpu"
         print("  Teacher on CPU (CETI_TEACHER_ON_CPU=1) — saves MPS memory")
 
+    use_cache = cfg.get("cache_teacher", False) or os.environ.get("CETI_CACHE_TEACHER", "").strip() in (
+        "1",
+        "true",
+        "yes",
+    )
+    cache_dir = resolve_path(cfg.get("teacher_cache_dir", f"./data/teacher_cache/{encoder}_{image_size}"))
+
     teacher = build_model(encoder, hub_id, teacher_device).eval()
     for p in teacher.parameters():
         p.requires_grad = False
 
+    if use_cache:
+        from ceti.depth.teacher_cache import count_cached, precompute_teacher_cache
+
+        cache_batch = cfg.get("cache_batch_size", 14)
+        have = count_cached(cache_dir, train_paths)
+        if have < len(train_paths):
+            precompute_teacher_cache(
+                teacher,
+                train_paths,
+                cache_dir,
+                torch.device(teacher_device),
+                image_size=image_size,
+                preprocess_method=cfg.get("preprocess_method", "combined"),
+                batch_size=cache_batch,
+                use_amp=cfg.get("use_amp", True),
+                hub_encoder=encoder,
+            )
+        del teacher
+        teacher = None
+        empty_cache(device)
+        print(f"  Speed mode: cached teacher depth ({cache_dir})")
+
     student = build_model(encoder, hub_id, str(device))
     use_amp = cfg.get("use_amp", False) and device.type in ("cuda", "mps")
+
+    if os.environ.get("CETI_TORCH_COMPILE", "").strip() in ("1", "true", "yes"):
+        try:
+            student = torch.compile(student)
+            print("  torch.compile enabled on student")
+        except Exception as e:
+            print(f"  torch.compile skipped: {e}")
     if args.resume:
         ckpt = torch.load(args.resume, map_location=device, weights_only=False)
         state = ckpt.get("model", ckpt)
         student.load_state_dict(state, strict=False)
         print(f"Resumed from {args.resume}")
 
-    epochs = args.epochs or cfg["epochs"]
-    batch_size = args.batch_size or cfg["batch_size"]
-    image_size = cfg.get("image_size", 518)
+    train_augment = cfg.get("marine_augment", True) and not use_cache
+    if use_cache and cfg.get("marine_augment", True):
+        print("  Note: marine_augment disabled when cache_teacher=true (paired flip only)")
 
     train_ds = WhaleDepthDataset(
         train_list,
         image_size=image_size,
         preprocess_method=cfg.get("preprocess_method", "none"),
-        augment=cfg.get("marine_augment", True),
+        augment=train_augment or use_cache,
+        teacher_cache_dir=cache_dir if use_cache else None,
     )
     workers = optimal_dataloader_workers(cfg.get("workers"), device=device)
     print(f"  Batch size: {batch_size}  DataLoader workers: {workers}")
@@ -231,6 +310,7 @@ def main():
             image_size=image_size,
             preprocess_method=cfg.get("preprocess_method", "none"),
             augment=False,
+            teacher_cache_dir=cache_dir if use_cache else None,
         )
         val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=0)
 
@@ -248,6 +328,9 @@ def main():
     grad_loss = GradientMatchingLoss()
     w_grad = cfg.get("w_gradient", 0.4)
 
+    if teacher is None and not use_cache:
+        raise RuntimeError("Teacher model required when cache_teacher is false")
+
     best_val = float("inf")
     for epoch in range(1, epochs + 1):
         student.train()
@@ -258,14 +341,9 @@ def main():
             optimizer.zero_grad(set_to_none=True)
 
             with torch.no_grad():
-                teacher_in = images if teacher_device == str(device) else images.to(teacher_device)
-                with torch.autocast(
-                    device_type=autocast_device_type(torch.device(teacher_device)),
-                    enabled=use_amp and teacher_device != "cpu",
-                ):
-                    target = predict_depth(teacher, teacher_in)
-                if teacher_device != str(device):
-                    target = target.to(device)
+                target = _batch_teacher_depth(batch, device)
+                if target is None:
+                    target = _teacher_forward(teacher, images, device, teacher_device, use_amp)
 
             with torch.autocast(device_type=amp_dtype, enabled=use_amp):
                 pred = predict_depth(student, images)
@@ -283,8 +361,18 @@ def main():
 
         avg_train = epoch_loss / len(train_loader)
         avg_val = None
-        if val_loader is not None:
-            avg_val = validate(student, teacher, val_loader, device, ss_loss, grad_loss, w_grad)
+        if val_loader is not None and (epoch % val_every == 0 or epoch == epochs):
+            avg_val = validate(
+                student,
+                teacher,
+                val_loader,
+                device,
+                ss_loss,
+                grad_loss,
+                w_grad,
+                teacher_device=teacher_device,
+                use_amp=use_amp,
+            )
             print(f"Epoch {epoch}: train_loss={avg_train:.4f} val_loss={avg_val:.4f}")
             if avg_val < best_val:
                 best_val = avg_val

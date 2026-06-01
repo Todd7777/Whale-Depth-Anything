@@ -127,5 +127,15 @@ python ceti/depth/infer_robot.py \
 
 File: `ceti/configs/whale_depth_m5max_128gb.yaml`
 
-- ViT-L, batch 10, workers 0, 40 epochs, MPS, AMP
+- ViT-L, **cache_teacher: true** (~2× faster epochs), batch 12, workers 0, val every 5 epochs
+
+### Speed options
+
+| Setting | Effect |
+|---------|--------|
+| `cache_teacher: true` | One-time teacher pass, then student-only training (**default in m5max yaml**) |
+| `batch_size: 12` | Raise to 14 if stable; lower to 8 if `Killed: 9` |
+| `val_every: 5` | Less validation overhead |
+| `CETI_TORCH_COMPILE=1` | Optional compile (experimental on MPS) |
+| `freeze_encoder: true` | Faster but weaker — only depth head trains |
 - Override: `export CETI_TRAIN_CONFIG=ceti/configs/whale_depth_phase1.yaml`

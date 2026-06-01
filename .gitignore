@@ -16,6 +16,7 @@ env/
 checkpoints/
 data/**
 !data/README.md
+data/teacher_cache/
 ceti/outputs/
 *.pt
 *.pth
