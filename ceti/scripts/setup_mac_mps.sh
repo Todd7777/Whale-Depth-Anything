@@ -37,6 +37,9 @@ fi
 "$PIP" install -U "huggingface_hub>=0.20.0"
 
 if [ -f ceti/scripts/download_checkpoints.sh ]; then
+  if [ -z "${HF_TOKEN:-}" ] && [ -z "${HUGGING_FACE_HUB_TOKEN:-}" ]; then
+    echo "Tip: export HF_TOKEN=hf_... for faster/private HF downloads (optional)"
+  fi
   bash ceti/scripts/download_checkpoints.sh || true
 fi
 

@@ -23,9 +23,11 @@ download_hf() {
 
     echo "  ↓ Downloading $filename from $repo → $dest_name..."
     "$PYTHON" -c "
+import os
 from huggingface_hub import hf_hub_download
 import shutil
-path = hf_hub_download(repo_id='$repo', filename='$filename')
+token = os.environ.get('HF_TOKEN') or os.environ.get('HUGGING_FACE_HUB_TOKEN')
+path = hf_hub_download(repo_id='$repo', filename='$filename', token=token)
 shutil.copy(path, '$dest')
 print(f'  ✓ Saved to $dest')
 " || {
