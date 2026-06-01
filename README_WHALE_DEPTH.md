@@ -30,14 +30,20 @@ See [ceti/docs/AVATARS_ALIGNMENT.md](ceti/docs/AVATARS_ALIGNMENT.md) for researc
 git clone https://github.com/Todd7777/Whale-Depth-Anything.git
 cd Whale-Depth-Anything
 
-# One-time setup (venv, PyTorch Metal, checkpoints, MPS test)
-bash ceti/scripts/setup_mac_mps.sh
+export CETI_DEVICE=mps CETI_REQUIRE_MPS=1 CETI_UNIFIED_MEMORY_GB=128
+export CETI_SKIP_GIT_PULL=1   # avoids broken optional git remote
+chmod +x ceti/scripts/*.sh
 
-# Download ~6k+ public underwater RGB + build train/val lists
-bash ceti/scripts/download_all_online_data.sh
+# One command: setup + data on disk + train + proof
+bash ceti/scripts/mac_m5_full_setup_and_train.sh
+```
 
-# Full train (ViT-L, batch 16, 40 epochs, MPS + AMP) + pipeline proof
-bash ceti/scripts/train_mac_full.sh
+**Detailed guide:** [ceti/docs/MAC_M5_SETUP.md](ceti/docs/MAC_M5_SETUP.md)
+
+Already set up? Data + train only:
+
+```bash
+bash ceti/scripts/mac_train_only.sh
 ```
 
 Checkpoint: `checkpoints/ceti_whale_depth/best.pt`
@@ -59,7 +65,7 @@ python ceti/scripts/verify_mps.py
 
 ### If you run out of GPU memory
 
-Lower `batch_size` in `ceti/configs/whale_depth_m5max_128gb.yaml` (try `12` or `8`). Keep `device: mps`.
+Default `batch_size` is **20** for 128GB. If OOM, lower to `16` or `12` in `ceti/configs/whale_depth_m5max_128gb.yaml`. Keep `device: mps`.
 
 ---
 

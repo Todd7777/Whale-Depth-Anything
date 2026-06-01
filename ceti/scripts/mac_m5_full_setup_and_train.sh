@@ -15,7 +15,7 @@ echo " Repo: $REPO_ROOT"
 echo "============================================"
 
 # --- 1) Optional git pull (never fail the pipeline) ---
-echo "[1/7] Git update (optional)…"
+echo "[1/6] Git update (optional)…"
 if [ "${CETI_SKIP_GIT_PULL:-0}" = "1" ]; then
   echo "  Skipped (CETI_SKIP_GIT_PULL=1)"
 elif git rev-parse --is-inside-work-tree &>/dev/null; then
@@ -36,23 +36,23 @@ else
 fi
 
 # --- 2) Venv + deps + MPS ---
-echo "[2/7] Mac MPS setup…"
+echo "[2/6] Mac MPS setup…"
 bash ceti/scripts/setup_mac_mps.sh
 
 # --- 3) Checkpoints ---
-echo "[3/7] Download checkpoints…"
+echo "[3/6] Download checkpoints…"
 bash ceti/scripts/download_checkpoints.sh
 
 # --- 4) Smoke test ---
-echo "[4/7] Smoke test…"
+echo "[4/6] Smoke test…"
 "${REPO_ROOT}/.venv/bin/python" ceti/scripts/smoke_test.py
 
 # --- 5) Training images MUST exist on disk ---
-echo "[5/7] Ensure training data on disk…"
+echo "[5/6] Ensure training data on disk…"
 bash ceti/scripts/ensure_training_data.sh
 
 # --- 6) Full training + proof ---
-echo "[6/7] Full training (ViT-L, MPS)…"
+echo "[6/6] Full training (ViT-L, MPS)…"
 bash ceti/scripts/train_mac_full.sh
 
 echo ""
