@@ -39,6 +39,9 @@ def configure_compute(max_threads: bool = True) -> int:
     import torch
 
     n = os.cpu_count() or 8
+    if platform.system() == "Darwin":
+        # Leave headroom for MPS + main process when DataLoader workers=0
+        n = min(n, 12)
     if max_threads:
         torch.set_num_threads(n)
         os.environ.setdefault("OMP_NUM_THREADS", str(n))

@@ -242,11 +242,14 @@ def main():
         from ceti.depth.teacher_cache import count_cached, precompute_teacher_cache
 
         cache_batch = cfg.get("cache_batch_size", 14)
-        have = count_cached(cache_dir, train_paths)
-        if have < len(train_paths):
+        cache_paths = list(train_paths)
+        if val_list.exists():
+            cache_paths.extend(p for p in load_image_paths(val_list) if p.is_file())
+        have = count_cached(cache_dir, cache_paths)
+        if have < len(cache_paths):
             precompute_teacher_cache(
                 teacher,
-                train_paths,
+                cache_paths,
                 cache_dir,
                 torch.device(teacher_device),
                 image_size=image_size,
@@ -332,6 +335,7 @@ def main():
         raise RuntimeError("Teacher model required when cache_teacher is false")
 
     best_val = float("inf")
+    best_train = float("inf")
     for epoch in range(1, epochs + 1):
         student.train()
         epoch_loss = 0.0
@@ -379,6 +383,9 @@ def main():
                 _save_checkpoint(save_dir / "best.pt", student, cfg, encoder, epoch, avg_val)
         else:
             print(f"Epoch {epoch}: train_loss={avg_train:.4f}")
+            if avg_train < best_train:
+                best_train = avg_train
+                _save_checkpoint(save_dir / "best.pt", student, cfg, encoder, epoch, avg_train)
 
         _save_checkpoint(save_dir / "last.pt", student, cfg, encoder, epoch, avg_train)
 

@@ -34,16 +34,17 @@ export CETI_DEVICE=mps CETI_REQUIRE_MPS=1 CETI_UNIFIED_MEMORY_GB=128
 export CETI_SKIP_GIT_PULL=1   # avoids broken optional git remote
 chmod +x ceti/scripts/*.sh
 
-# One command: setup + data on disk + train + proof
-bash ceti/scripts/mac_m5_full_setup_and_train.sh
+# BULLETPROOF train (after setup once):
+bash ceti/scripts/mac_train_bulletproof.sh
 ```
 
-**Detailed guide:** [ceti/docs/MAC_M5_SETUP.md](ceti/docs/MAC_M5_SETUP.md)
+**Guide:** [ceti/docs/MAC_M5_SETUP.md](ceti/docs/MAC_M5_SETUP.md)
 
-Already set up? Data + train only:
+Full install + train:
 
 ```bash
-bash ceti/scripts/mac_train_only.sh
+bash ceti/scripts/setup_mac_mps.sh
+bash ceti/scripts/mac_train_bulletproof.sh
 ```
 
 Checkpoint: `checkpoints/ceti_whale_depth/best.pt`

@@ -67,7 +67,7 @@ def precompute_teacher_cache(
     amp_dtype = autocast_device_type(device)
     saved = count_cached(cache_dir, paths)
 
-    with torch.no_grad():
+    with torch.inference_mode():
         for batch in tqdm(loader, desc="Teacher cache", leave=False):
             images = batch["image"].to(device)
             with torch.autocast(device_type=amp_dtype, enabled=use_amp):
